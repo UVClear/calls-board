@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="referrer" content="no-referrer" />
+  <title>Calls board — private</title>
+  <style>
+    :root { --bg:#eef2f5; --card:#fff; --ink:#1b2430; --muted:#5c6c7d; --line:#d5dee7; --accent:#1e4d7b; --good:#176b42; --soft:#e7f0f8; }
+    * { box-sizing: border-box; }
+    body { margin:0; font:16px/1.45 "Segoe UI", system-ui, sans-serif; background:var(--bg); color:var(--ink); }
+    main { max-width:760px; margin:0 auto; padding:20px 16px 48px; }
+    h1 { font-size:1.6rem; margin:0 0 6px; }
+    p { margin:0 0 12px; }
+    .muted { color:var(--muted); }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin:12px 0; }
+    button, input, select, textarea { font:inherit; }
+    .choices { display:flex; flex-direction:column; gap:8px; }
+    .choices button, .who button, .bar button { text-align:left; border:1px solid var(--line); background:#fff; border-radius:10px; padding:12px 14px; cursor:pointer; }
+    .choices button.on, .who button.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+    .bar { display:flex; gap:8px; flex-wrap:wrap; }
+    .gate { min-height:100vh; display:grid; place-items:center; padding:24px; }
+    .gate form { width:min(420px,100%); }
+    input[type=password], textarea, select { width:100%; border:1px solid var(--line); border-radius:8px; padding:10px; background:#fff; }
+    .progress { height:8px; background:#dbe3ea; border-radius:99px; overflow:hidden; margin:8px 0 16px; }
+    .progress span { display:block; height:100%; background:var(--accent); }
+    .tag { display:inline-block; font-size:.75rem; border-radius:99px; padding:2px 8px; background:var(--soft); color:var(--accent); }
+    .done { color:var(--good); }
+    li { margin:6px 0; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script>
+    const PASS_HASH = "98d8034b84ee6aa367b9650f6e17d74f124df0dc6071ffe003dd22b4324a2afa";
+    const figured = [
+      ["Price kept", "$5,000 on every module path. Royalty is the only path that keeps less, and it sits outside the book."],
+      ["Five-year face", "200,000 modules, $1.0B hardware. Not a dial."],
+      ["Where the next sales hour goes", "On the current mix, Portables and OEM. About $9,138 contribution per hour. Illustrative, not a quota."],
+      ["Installed, low case", "Commercial about $7,321. Holds the $10,000 ceiling per ~2,000 CFM module. Modeled, not quoted."],
+      ["Module vs royalty", "A module sale earns about 6.7× a 6% royalty at the mid OEM benchmark."],
+      ["First LED build in the model", "Commercial and ag 120 then 90. In-room 60 then 45. Efficacy stays the validated 64% single-pass MS2 at 120 LEDs / 500 mA / ~2,000 CFM."]
+    ];
+    const questions = [
+      { id:"segment", ask:"What is the next engineering segment?", why:"Andre's roadmap slide still hangs a cost-down and a calibration on work that is not sequenced.", options:["Freeze the Gen1 socket and LED count","Build first articles","Anometer range check","Controller cost-down bench","Second-source paper only","Safety-listing path for the supply"] },
+      { id:"source", ask:"LED supply today?", why:"The deck said second-source qualification is in progress. It is not.", options:["Single-sourced today. Qualify an alternate after close.","Start alternate qualification now.","Leave it off the deck."] },
+      { id:"hookup", ask:"Who lands the line-voltage hookup?", why:"Slide 12 says HVAC professional and licensed electrician. Pick one story.", options:["HVAC contractor. Line voltage follows local code.","Electrician does the supply. HVAC does the duct.","Either, job by job."] },
+      { id:"anometer", ask:"When does full-range Anometer calibration have to be done?", why:"The deck must say behavior, not a live calibration. Keep the word Anometer.", options:["After close, before first install.","After the first friendly install.","Not a gate. Ship the on/off airflow behavior first."] },
+      { id:"controller", ask:"Controller cost-down on the slide?", why:"$50 to $3–5 is a modeled target on a separate pending approach, not the granted patent.", options:["Keep it, labeled modeled, not in production.","Pull the dollar range.","Keep the idea, drop the numbers."] },
+      { id:"install", ask:"First commercial install window?", why:"Deck says 6–8 months. That clock starts at close, and it is planned, not committed.", options:["6–8 months after close.","9–12 months after close.","After the lab retest, whenever that lands."] },
+      { id:"residential", ask:"Residential track?", why:"Deck says 12–14 months after close. Same crew or a later segment?", options:["12–14 months after close, same crew.","After commercial has ten installs.","Not this round."] },
+      { id:"lab", ask:"Higher-titer 185.1 retest relative to first install?", why:"No new efficacy number until that test. 64% carries the story.", options:["Fund it this round. Before first install.","Fund it this round. After a friendly install.","Date stays open. Do not put a month on the slide."] },
+      { id:"connect", ask:"Connectivity?", why:"Deck said early conversations are underway. They are not a ship feature.", options:["Planned after close. Off the first-install gate.","Needed before first install.","Off the deck for now."] }
+    ];
+    const key = "uvc-calls-v1";
+    function load() {
+      const blank = { who:"Colin", answers:{}, note:"" };
+      try {
+        const hash = location.hash.slice(1);
+        if (hash) return Object.assign(blank, JSON.parse(decodeURIComponent(escape(atob(hash)))));
+      } catch (e) {}
+      try { return Object.assign(blank, JSON.parse(localStorage.getItem(key) || "{}")); } catch (e) { return blank; }
+    }
+    let state = load();
+    let step = 0;
+    let authed = sessionStorage.getItem("uvc-calls") === PASS_HASH;
+    async function sha256(text) {
+      const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+      return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
+    }
+    function save() {
+      localStorage.setItem(key, JSON.stringify(state));
+      const payload = btoa(unescape(encodeURIComponent(JSON.stringify(state))));
+      history.replaceState(null, "", "#" + payload);
+    }
+    function record() {
+      return { savedAt: new Date().toISOString(), who: state.who, answers: state.answers, note: state.note, figured };
+    }
+    function render() {
+      const app = document.getElementById("app");
+      if (!authed) {
+        app.innerHTML = '<div class="gate"><form class="card"><h1>Calls board</h1><p class="muted">Unlisted. For Colin, Andre, and Dan. No index.</p><input id="pw" type="password" autocomplete="off" aria-label="Passphrase" /><p><button class="on" type="submit">Enter</button></p><p id="err" class="muted"></p></form></div>';
+        app.querySelector("form").onsubmit = async (e) => {
+          e.preventDefault();
+          const hash = await sha256(document.getElementById("pw").value.trim());
+          if (hash === PASS_HASH) { sessionStorage.setItem("uvc-calls", PASS_HASH); authed = true; render(); }
+          else document.getElementById("err").textContent = "Passphrase does not match.";
+        };
+        return;
+      }
+      const answered = questions.filter(q => state.answers[q.id]).length;
+      const q = questions[step];
+      const pct = Math.round(answered / questions.length * 100);
+      app.innerHTML = '<main><p class="tag">Unlisted · Andre deck open calls · 6 Oct 2026</p><h1>Nine clicks. Then Andre can paste.</h1><p class="muted">Big-company habit in one line: freeze the design, build a few, try a friendly duct, then talk volume. These are the clicks the deck still needs. The money face is already figured.</p><div class="who bar"></div><div class="progress"><span style="width:'+pct+'%"></span></div><p class="muted">'+answered+' of '+questions.length+' recorded'+(state.who ? ' · '+state.who : '')+'</p><section class="card"><p class="tag">Click '+(step+1)+'</p><h2>'+q.ask+'</h2><p class="muted">'+q.why+'</p><div class="choices"></div></section><section class="card"><h2>Already figured — do not reopen</h2><ul>'+figured.map(f => '<li><strong>'+f[0]+'.</strong> '+f[1]+'</li>').join('')+'</ul></section><section class="card"><h2>Note for the other two</h2><textarea id="note" rows="3" placeholder="Optional. One sentence."></textarea><div class="bar" style="margin-top:10px"><button id="prev" type="button">Back</button><button id="next" type="button">Next</button><button id="copy" type="button">Copy record link</button><button id="down" type="button">Download record</button></div><p id="msg" class="done"></p></section><section class="card"><h2>What a finished board gives Andre</h2><ul id="paste"></ul></section></main>';
+      const whoBox = app.querySelector(".who");
+      ["Colin","Andre","Dan"].forEach(name => {
+        const b = document.createElement("button");
+        b.textContent = "I am "+name;
+        b.className = state.who === name ? "on" : "";
+        b.onclick = () => { state.who = name; save(); render(); };
+        whoBox.appendChild(b);
+      });
+      const box = app.querySelector(".choices");
+      q.options.forEach(opt => {
+        const b = document.createElement("button");
+        b.textContent = opt;
+        b.className = state.answers[q.id] === opt ? "on" : "";
+        b.onclick = () => { state.answers[q.id] = opt; save(); if (step < questions.length - 1) step += 1; render(); };
+        box.appendChild(b);
+      });
+      app.querySelector("#note").value = state.note || "";
+      app.querySelector("#note").oninput = (e) => { state.note = e.target.value; save(); };
+      app.querySelector("#prev").onclick = () => { step = Math.max(0, step - 1); render(); };
+      app.querySelector("#next").onclick = () => { step = Math.min(questions.length - 1, step + 1); render(); };
+      app.querySelector("#copy").onclick = async () => { save(); await navigator.clipboard.writeText(location.href); app.querySelector("#msg").textContent = "Link copied. Send that to the other two. It is the record."; };
+      app.querySelector("#down").onclick = () => {
+        const blob = new Blob([JSON.stringify(record(), null, 2)], { type:"application/json" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "calls-"+state.who.toLowerCase()+".json";
+        a.click();
+      };
+      const paste = app.querySelector("#paste");
+      questions.forEach(item => {
+        const li = document.createElement("li");
+        li.textContent = item.ask + " " + (state.answers[item.id] || "— still open");
+        paste.appendChild(li);
+      });
+      if (state.note) {
+        const li = document.createElement("li");
+        li.textContent = "Note: " + state.note;
+        paste.appendChild(li);
+      }
+    }
+    render();
+  </script>
+</body>
+</html>
